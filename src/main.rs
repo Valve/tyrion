@@ -1,4 +1,11 @@
+#![feature(phase)]
+extern crate regex;
+#[phase(plugin)] extern crate regex_macros;
 fn main() {
+    let tokenizer = create_tokenizer("(function($){'use strict';})(jQuery);");
+    //for token in tokenizer {
+        //println!("{}", token);
+    //}
 }
 
 fn create_tokenizer(input: &str) -> Tokenizer {
@@ -8,8 +15,10 @@ fn create_tokenizer(input: &str) -> Tokenizer {
 struct Tokenizer<'a> {
     input: &'a str,
     input_len: uint,
-    tok_cur_line: u32,
-    tok_pos: uint
+    tok_cur_line: uint,
+    tok_pos: uint,
+    tok_start: uint,
+    tok_end: uint
 }
 
 impl<'a> Tokenizer<'a> {
@@ -18,7 +27,9 @@ impl<'a> Tokenizer<'a> {
             input: input,
             input_len: input.len(),
             tok_pos: 0,
-            tok_cur_line: 1
+            tok_cur_line: 1,
+            tok_start: 0,
+            tok_end: 0
         }
     }
 
@@ -77,26 +88,55 @@ impl<'a> Tokenizer<'a> {
             ch = self.input.char_at(self.tok_pos) as u32;
         }
     }
+
+    fn read_token(&mut self) -> Token {
+        self.tok_start = self.tok_pos;
+        // TODO: uncomment
+        //if self.tok_pos >= self.input_len {
+            //return Token {value: None, token_type: Eof, start: self.tok_start, end: self.tok_start}
+        //}
+        // TODO: remove
+        return Token {value: None, token_type: Eof, start: self.tok_start, end: self.tok_start}
+
+    }
+
+    //TODO: return token maybe?
+    fn finish_token(&mut self) {
+        self.tok_end = self.tok_pos;
+    }
+
+    fn is_identifier_start(code: u32) -> bool {
+        if code < 65 {return code == 36;}
+        if code < 91 {return true;}
+        if code < 97 {return code == 95;}
+        if code < 123 {return true;}
+        code >= 0xAA
+    }
 }
 
 impl<'a, Token> Iterator<Token> for Tokenizer<'a> {
     fn next(&mut self) -> Option<Token> {
-        None
+        let token = self.read_token();
+        match token.token_type {
+            Eof => None,
+            _ => Some(token)
+        }
     }
 }
 
-struct Token {
-    value: String,
+#[deriving(Show)]
+struct Token<'a> {
+    value: Option<&'a str>,
     token_type: TokenType,
-    start: u32,
-    end: u32,
+    start: uint,
+    end: uint,
 }
 
+#[deriving(Show)]
 enum TokenType {
-    Identifier
+    Identifier,
+    Eof
 }
-
-
 
 fn index_of(haystack: &str, needle: &str) -> Option<uint> {
     haystack.find_str(needle)
