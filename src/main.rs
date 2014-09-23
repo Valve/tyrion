@@ -89,7 +89,7 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    fn read_token(&mut self) -> Token {
+    fn read_token<'a>(&mut self) -> Token<'a> {
         self.tok_start = self.tok_pos;
         // TODO: uncomment
         //if self.tok_pos >= self.input_len {
@@ -114,8 +114,8 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-impl<'a, Token> Iterator<Token> for Tokenizer<'a> {
-    fn next(&mut self) -> Option<Token> {
+impl<'a> Iterator<Token<'a>> for Tokenizer<'a> {
+    fn next(&mut self) -> Option<Token<'a>> {
         let token = self.read_token();
         match token.token_type {
             Eof => None,
