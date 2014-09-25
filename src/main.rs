@@ -149,6 +149,41 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
+    fn read_hex_char(&mut self, len: uint) -> Option<u32> {
+        match self.read_u32_of_len(16, len) {
+            Some(n) => Some(n),
+            None => fail!("Bad character escape sequence: {}", self.tok_pos)
+        }
+    }
+
+    // Reads an unsigned integer in given radix of `len` length
+    // if zero digits were read, returns None.
+    // If integer is not of length `len`, None is returned
+    fn read_u32_of_len(&mut self, radix: u32, len: uint) -> Option<u32> {
+        let start = self.tok_pos;
+        let mut total = 0;
+        for _ in range(0, len) {
+            let  code = self.input.char_at(self.tok_pos) as u32;
+            let val = if code >= 97 {
+                code - 97 + 10 // a
+            } else if code >= 65 {
+                code - 65 + 10 // A
+            } else if code >= 48 && code <= 57 { //0-9
+                code - 48
+            } else {
+                fail!("Invalid value at: {}", self.tok_pos);
+            };
+            if val >= radix { break; }
+            self.tok_pos += 1;
+            total = total * radix + val;
+        }
+        if self.tok_pos - start != len {
+            None
+        } else {
+            Some(total)
+        }
+    }
+
     //TODO: return token maybe?
     fn finish_token(&mut self) {
         self.tok_end = self.tok_pos;
