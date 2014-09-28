@@ -1,7 +1,7 @@
 /*
  * JavaScript tokenizer/parser
  * Copyright Valentin Vasilyev (valentin.vasilyev@outlook.com) 2014
- * https://github.com/Valve
+ * https://github.com/Valve/tyrion
  * Ideas heavily borrowed from other JavaScript analyzers/parsers
  * (esprima/acorn/uglifyjs/typescript compiler)
  * Code is MIT licensed
@@ -21,14 +21,35 @@ static ECMA5_RESERVED_WORDS: [&'static str,..7] = ["class", "enum", "extends", "
 static ECMA5_KEYWORDS: [&'static str,..29] = ["break", "case", "catch", "continue", "debugger", "default", "do", "else", "finally", "for", "function", "if", "return", "switch", "throw", "try", "var", "while", "with", "null", "true", "false", "instanceof", "typeof", "void", "delete", "new", "in", "this"];
 static ECMA6_KEYWORDS: [&'static str,..36] = ["break", "case", "catch", "continue", "debugger", "default", "do", "else", "finally", "for", "function", "if", "return", "switch", "throw", "try", "var", "while", "with", "null", "true", "false", "instanceof", "typeof", "void", "delete", "new", "in", "this", "let", "const", "class", "extends", "export", "import", "yield"];
 
+// keyword data
 static BREAK: KeywordData = KeywordData { keyword: "break", is_loop: false, before_expr: false };
 static CASE: KeywordData = KeywordData { keyword: "case", is_loop: false, before_expr: true };
 static CATCH: KeywordData = KeywordData { keyword: "catch", is_loop: false, before_expr: false };
+static CLASS: KeywordData = KeywordData { keyword: "class", is_loop: false, before_expr: false };
+static CONST: KeywordData = KeywordData { keyword: "const", is_loop: false, before_expr: false };
 static CONTINUE: KeywordData = KeywordData { keyword: "continue", is_loop: false, before_expr: false };
 static DEBUGGER: KeywordData = KeywordData { keyword: "debugger", is_loop: false, before_expr: false };
 static DEFAULT: KeywordData = KeywordData { keyword: "default", is_loop: false, before_expr: false };
 static DO: KeywordData = KeywordData { keyword: "do", is_loop: true, before_expr: false };
-
+static ELSE: KeywordData = KeywordData { keyword: "else", is_loop: false, before_expr: true };
+static EXPORT: KeywordData = KeywordData { keyword: "export", is_loop: false, before_expr: false };
+static EXTENDS: KeywordData = KeywordData { keyword: "extends", is_loop: false, before_expr: true };
+static FINALLY: KeywordData = KeywordData { keyword: "finally", is_loop: false, before_expr: false };
+static IMPORT: KeywordData = KeywordData { keyword: "import", is_loop: false, before_expr: false };
+static FOR: KeywordData = KeywordData { keyword: "for", is_loop: true, before_expr: false };
+static FUNCTION: KeywordData = KeywordData { keyword: "function", is_loop: false, before_expr: false };
+static IF: KeywordData = KeywordData { keyword: "if", is_loop: false, before_expr: false };
+static LET: KeywordData = KeywordData { keyword: "let", is_loop: false, before_expr: false };
+static NEW: KeywordData = KeywordData { keyword: "new", is_loop: false, before_expr: true };
+static RETURN: KeywordData = KeywordData { keyword: "return", is_loop: false, before_expr: true };
+static SWITCH: KeywordData = KeywordData { keyword: "switch", is_loop: false, before_expr: false };
+static THIS: KeywordData = KeywordData { keyword: "this", is_loop: false, before_expr: false };
+static THROW: KeywordData = KeywordData { keyword: "throw", is_loop: false, before_expr: true };
+static TRY: KeywordData = KeywordData { keyword: "try", is_loop: false, before_expr: false };
+static VAR: KeywordData = KeywordData { keyword: "var", is_loop: false, before_expr: false };
+static WHILE: KeywordData = KeywordData { keyword: "while", is_loop: true, before_expr: false };
+static WITH: KeywordData = KeywordData { keyword: "with", is_loop: false, before_expr: false };
+static YIELD: KeywordData = KeywordData { keyword: "yield", is_loop: false, before_expr: true };
 
 fn create_tokenizer(input: &str, options: Options) -> Tokenizer {
     Tokenizer::new(input, options)
@@ -224,7 +245,25 @@ impl Tokenizer {
             "debugger" => DEBUGGER,
             "default" => DEFAULT,
             "do" => DO,
-            _ => KeywordData { keyword: "blaster", is_loop: false, before_expr: false }
+            "else" => ELSE,
+            "export" => EXPORT,
+            "extends" => EXTENDS,
+            "finally" => FINALLY,
+            "import" => IMPORT,
+            "for" => FOR,
+            "function" => FUNCTION,
+            "if" => IF,
+            "let" => LET,
+            "new" => NEW,
+            "return" => RETURN,
+            "switch" => SWITCH,
+            "this" => THIS,
+            "throw" => THROW,
+            "try" => TRY,
+            "var" => VAR,
+            "while" => WHILE,
+            "with" => WITH,
+            _  => YIELD
         }
     }
 

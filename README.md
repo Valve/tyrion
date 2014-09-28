@@ -1,6 +1,6 @@
-js-rust
+Tyrion
 =======
 
-JavaScript tokenizer/parser written in Rust
+JavaScript parser written in Rust
 
-Work in progress, 40% of tokenizer done.
+Work in progress, 50% of tokenizer done.
