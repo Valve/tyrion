@@ -21,6 +21,10 @@ static ECMA5_RESERVED_WORDS: [&'static str,..7] = ["class", "enum", "extends", "
 static ECMA5_KEYWORDS: [&'static str,..29] = ["break", "case", "catch", "continue", "debugger", "default", "do", "else", "finally", "for", "function", "if", "return", "switch", "throw", "try", "var", "while", "with", "null", "true", "false", "instanceof", "typeof", "void", "delete", "new", "in", "this"];
 static ECMA6_KEYWORDS: [&'static str,..36] = ["break", "case", "catch", "continue", "debugger", "default", "do", "else", "finally", "for", "function", "if", "return", "switch", "throw", "try", "var", "while", "with", "null", "true", "false", "instanceof", "typeof", "void", "delete", "new", "in", "this", "let", "const", "class", "extends", "export", "import", "yield"];
 
+fn create_tokenizer(input: &str, options: Options) -> Tokenizer {
+    Tokenizer::new(input, options)
+}
+
 fn main() {
     let options = Options{version: Ecma6};
     let mut tokenizer = create_tokenizer("(function($){'use strict';})(jQuery);", options);
@@ -39,30 +43,54 @@ enum EcmaVersion {
     Ecma6
 }
 
-fn create_tokenizer(input: &str, options: Options) -> Tokenizer {
-    Tokenizer::new(input, options)
+#[deriving(Show)]
+struct Token {
+    value: Option<String>,
+    token_type: TokenType,
+    start: uint,
+    end: uint,
 }
 
-struct Tokenizer<'a> {
+#[deriving(Show)]
+enum TokenType {
+    Name,
+    Keyword(KeywordData),
+    Punc(PuncData),
+    Eof
+}
+
+#[deriving(Show)]
+struct KeywordData {
+    keyword: &'static str,
+    is_loop: bool,
+    before_expr: bool
+}
+
+#[deriving(Show)]
+struct PuncData {
+    punc_type: &'static str,
+    before_expr: bool
+}
+
+struct Tokenizer {
     options: Options,
     contains_esc: bool,
-    input: &'a str,
+    input: String,
     input_len: uint,
-    tok_cur_line: uint,
     tok_pos: uint,
+    // start and end of current token
     tok_start: uint,
     tok_end: uint
 }
 
-impl<'a> Tokenizer<'a> {
-    fn new(input: &'a str, options: Options) -> Tokenizer<'a> {
+impl Tokenizer {
+    fn new(input: &str, options: Options) -> Tokenizer {
         Tokenizer {
             options: options,
             contains_esc: false,
-            input: input,
+            input: input.to_string(),
             input_len: input.len(),
             tok_pos: 0,
-            tok_cur_line: 1,
             tok_start: 0,
             tok_end: 0
         }
@@ -72,15 +100,23 @@ impl<'a> Tokenizer<'a> {
         self.skip_space();
     }
 
+    fn curr_char(&self) -> char {
+        self.char_at(self.tok_pos)
+    }
+
+    fn char_at(&self, pos: uint) -> char {
+        self.input.as_slice().char_at(pos)
+    }
+
     fn skip_space(&mut self) {
         while self.tok_pos < self.input_len {
-            let original_ch = self.input.char_at(self.tok_pos);
+            let original_ch = self.curr_char();
             let ch = original_ch as u32;
             if ch == 32 {
                 self.tok_pos +=1;
             } else if ch == 13 {
                 self.tok_pos +=1;
-                let next = self.input.char_at(self.tok_pos) as u32;
+                let next = self.curr_char() as u32;
                 if next == 10 {
                     self.tok_pos +=1;
                 }
@@ -89,7 +125,7 @@ impl<'a> Tokenizer<'a> {
             } else if ch > 8 && ch < 18 {
                 self.tok_pos +=1;
             } else if ch == 47 { // '/'
-                let next = self.input.char_at(self.tok_pos + 1) as u32;
+                let next = self.char_at(self.tok_pos + 1) as u32;
                 if next == 42 { // '*'
                     self.skip_block_comment();
                 } else if next == 47 { // '/'
@@ -109,7 +145,7 @@ impl<'a> Tokenizer<'a> {
 
     fn skip_block_comment(&mut self) {
         self.tok_pos +=2;
-        match index_of_with_offset(self.input, "*/", self.tok_pos) {
+        match index_of_with_offset(self.input.as_slice(), "*/", self.tok_pos) {
             Some(i) => self.tok_pos = i + 2,
             None => fail!("Unterminated comment at: {}", self.tok_pos - 2)
         };
@@ -117,35 +153,70 @@ impl<'a> Tokenizer<'a> {
 
     fn skip_line_comment(&mut self, start_skip: uint){
         self.tok_pos += start_skip;
-        let mut code = self.input.char_at(self.tok_pos) as u32;
+        let mut code = self.curr_char() as u32;
         while self.tok_pos < self.input_len && code != 10 && code != 13 && code != 8232 && code != 8233 {
             self.tok_pos += 1;
-            code = self.input.char_at(self.tok_pos) as u32;
+            code = self.curr_char() as u32;
         }
     }
 
-    fn read_token<'a>(&mut self) -> Token<'a> {
+    fn read_token(&mut self) -> Token {
         self.tok_start = self.tok_pos;
         if self.tok_pos >= self.input_len {
             return Token {value: None, token_type: Eof, start: self.tok_start, end: self.tok_start}
         }
-        let code = self.input.char_at(self.tok_pos) as u32;
+        let code = self.curr_char() as u32;
 
         // Identifier or keyword. '\uXXXX' sequences are allowed in
         // identifiers, so '\' also goes to that.
         if Tokenizer::is_identifier_start(code) || code == 92 /* '/' */ {
             return self.read_word()
         }
-        self.read_word()
+        match self.read_token_from_code(code) {
+            Some(token) => token,
+            None => {
+                  // If we are here, we either found a non-ASCII identifier
+                  // character, or something that's entirely disallowed.
+                  let ch = char::from_u32(code).unwrap();
+                  if ch == '\\' || Tokenizer::is_non_ascii_identifier_start(code) {
+                      self.read_word()
+                  } else {
+                      fail!("Unexpected character '{}'", ch);
+                  }
+            }
+        }
     }
 
-    fn read_word<'a>(&mut self) -> Token<'a> {
+    fn read_token_from_code(&mut self, code: u32) -> Option<Token> {
+        match code {
+            40 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(PuncData { punc_type: "(", before_expr: true })))
+            },
+            _ => None
+        }
+    }
+
+    fn read_word(&mut self) -> Token {
         let word = self.read_word_in_loop();
-        //let token_type = if !self.contains_esc && self.is_keyword(word.as_slice()) {
+        let token_type = if !self.contains_esc && self.is_keyword(word.as_slice()) {
+            let keyword = self.get_keyword(word.as_slice());
+            Keyword(keyword)
+        } else { Name };
+        self.finish_token_with_value(token_type, word.as_slice())
+    }
 
-
-        //TODO: remove
-        Token {value: Some("word"), token_type: Identifier, start: self.tok_start, end: self.tok_start}
+    fn get_keyword(&self, keyword: &str) -> KeywordData {
+        match keyword {
+            "break" => KeywordData { keyword: "break", is_loop: false, before_expr: false },
+            "case" => KeywordData { keyword: "case", is_loop: false, before_expr: true },
+            "catch" => KeywordData { keyword: "catch", is_loop: false, before_expr: false },
+            "continue" => KeywordData { keyword: "continue", is_loop: false, before_expr: false },
+            "debugger" => KeywordData { keyword: "debugger", is_loop: false, before_expr: false },
+            "default" => KeywordData { keyword: "default", is_loop: false, before_expr: false },
+            "do" => KeywordData { keyword: "do", is_loop: true, before_expr: false },
+            _ => KeywordData { keyword: "blaster", is_loop: false, before_expr: false }
+        }
     }
 
     fn read_word_in_loop(&mut self) -> String {
@@ -154,19 +225,19 @@ impl<'a> Tokenizer<'a> {
         self.contains_esc = false;
         let mut word = "".to_string();
         loop {
-            let code = self.input.char_at(self.tok_pos) as u32;
+            let code = self.curr_char() as u32;
             if Tokenizer::is_identifier_char(code) {
                 if self.contains_esc {
-                    word.push(self.input.char_at(self.tok_pos));
+                    word.push(self.curr_char());
                 }
                 self.tok_pos += 1;
             } else if code == 92 { /* '\'  */
                 if !self.contains_esc {
-                    word = self.input.slice_chars(start, self.tok_pos).to_string();
+                    word = self.input.as_slice().slice_chars(start, self.tok_pos).to_string();
                 }
                 self.contains_esc = true;
                 self.tok_pos += 1;
-                if self.input.char_at(self.tok_pos) as u32 != 117 { // 'u'
+                if self.curr_char() as u32 != 117 { // 'u'
                     fail!("{}: Expected Unicode escape sequence \\uXXXX", self.tok_pos);
                 }
                 self.tok_pos += 1;
@@ -195,7 +266,7 @@ impl<'a> Tokenizer<'a> {
         if self.contains_esc {
             word
         } else {
-            self.input.slice_chars(start, self.tok_pos).to_string()
+            self.input.as_slice().slice_chars(start, self.tok_pos).to_string()
         }
     }
 
@@ -213,7 +284,7 @@ impl<'a> Tokenizer<'a> {
         let start = self.tok_pos;
         let mut total = 0;
         for _ in range(0, len) {
-            let  code = self.input.char_at(self.tok_pos) as u32;
+            let  code = self.curr_char() as u32;
             let val = if code >= 97 {
                 code - 97 + 10 // a
             } else if code >= 65 {
@@ -234,9 +305,14 @@ impl<'a> Tokenizer<'a> {
         }
     }
 
-    //TODO: return token maybe?
-    fn finish_token(&mut self) {
+    fn finish_token_with_value(&mut self, token_type: TokenType, value: &str) -> Token {
         self.tok_end = self.tok_pos;
+        Token { value: Some(value.to_string()), token_type: token_type, start: self.tok_start, end: self.tok_end }
+    }
+
+    fn finish_token(&mut self, token_type: TokenType) -> Token {
+        self.tok_end = self.tok_pos;
+        Token {value: None, token_type: token_type, start: self.tok_start, end: self.tok_end }
     }
 
     /// test if char code can start an identifier
@@ -284,8 +360,8 @@ impl<'a> Tokenizer<'a> {
     }
 }
 
-impl<'a> Iterator<Token<'a>> for Tokenizer<'a> {
-    fn next(&mut self) -> Option<Token<'a>> {
+impl Iterator<Token> for Tokenizer {
+    fn next(&mut self) -> Option<Token> {
         let token = self.read_token();
         match token.token_type {
             Eof => None,
@@ -294,19 +370,6 @@ impl<'a> Iterator<Token<'a>> for Tokenizer<'a> {
     }
 }
 
-#[deriving(Show)]
-struct Token<'a> {
-    value: Option<&'a str>,
-    token_type: TokenType,
-    start: uint,
-    end: uint,
-}
-
-#[deriving(Show)]
-enum TokenType {
-    Identifier,
-    Eof
-}
 
 fn index_of(haystack: &str, needle: &str) -> Option<uint> {
     haystack.find_str(needle)
