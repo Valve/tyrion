@@ -21,6 +21,15 @@ static ECMA5_RESERVED_WORDS: [&'static str,..7] = ["class", "enum", "extends", "
 static ECMA5_KEYWORDS: [&'static str,..29] = ["break", "case", "catch", "continue", "debugger", "default", "do", "else", "finally", "for", "function", "if", "return", "switch", "throw", "try", "var", "while", "with", "null", "true", "false", "instanceof", "typeof", "void", "delete", "new", "in", "this"];
 static ECMA6_KEYWORDS: [&'static str,..36] = ["break", "case", "catch", "continue", "debugger", "default", "do", "else", "finally", "for", "function", "if", "return", "switch", "throw", "try", "var", "while", "with", "null", "true", "false", "instanceof", "typeof", "void", "delete", "new", "in", "this", "let", "const", "class", "extends", "export", "import", "yield"];
 
+static BREAK: KeywordData = KeywordData { keyword: "break", is_loop: false, before_expr: false };
+static CASE: KeywordData = KeywordData { keyword: "case", is_loop: false, before_expr: true };
+static CATCH: KeywordData = KeywordData { keyword: "catch", is_loop: false, before_expr: false };
+static CONTINUE: KeywordData = KeywordData { keyword: "continue", is_loop: false, before_expr: false };
+static DEBUGGER: KeywordData = KeywordData { keyword: "debugger", is_loop: false, before_expr: false };
+static DEFAULT: KeywordData = KeywordData { keyword: "default", is_loop: false, before_expr: false };
+static DO: KeywordData = KeywordData { keyword: "do", is_loop: true, before_expr: false };
+
+
 fn create_tokenizer(input: &str, options: Options) -> Tokenizer {
     Tokenizer::new(input, options)
 }
@@ -208,13 +217,13 @@ impl Tokenizer {
 
     fn get_keyword(&self, keyword: &str) -> KeywordData {
         match keyword {
-            "break" => KeywordData { keyword: "break", is_loop: false, before_expr: false },
-            "case" => KeywordData { keyword: "case", is_loop: false, before_expr: true },
-            "catch" => KeywordData { keyword: "catch", is_loop: false, before_expr: false },
-            "continue" => KeywordData { keyword: "continue", is_loop: false, before_expr: false },
-            "debugger" => KeywordData { keyword: "debugger", is_loop: false, before_expr: false },
-            "default" => KeywordData { keyword: "default", is_loop: false, before_expr: false },
-            "do" => KeywordData { keyword: "do", is_loop: true, before_expr: false },
+            "break" => BREAK,
+            "case" => CASE,
+            "catch" => CATCH,
+            "continue" => CONTINUE,
+            "debugger" => DEBUGGER,
+            "default" => DEFAULT,
+            "do" => DO,
             _ => KeywordData { keyword: "blaster", is_loop: false, before_expr: false }
         }
     }
