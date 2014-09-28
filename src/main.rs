@@ -51,6 +51,48 @@ static WHILE: KeywordData = KeywordData { keyword: "while", is_loop: true, befor
 static WITH: KeywordData = KeywordData { keyword: "with", is_loop: false, before_expr: false };
 static YIELD: KeywordData = KeywordData { keyword: "yield", is_loop: false, before_expr: true };
 
+// values
+static NULL: ValueData = ValueData { keyword: "null", atom_value: None };
+static TRUE: ValueData = ValueData { keyword: "true", atom_value: Some(true) };
+static FALSE: ValueData = ValueData { keyword: "false", atom_value: Some(false) };
+
+// punc data
+static ARROW: PuncData = PuncData { punc_type: "=>", before_expr: true };
+static BQUOTE: PuncData = PuncData { punc_type: "`", before_expr: false };
+static BRAKET_L: PuncData = PuncData { punc_type: "[", before_expr: true };
+static BRAKET_R: PuncData = PuncData { punc_type: "]", before_expr: false };
+static BRACE_L: PuncData = PuncData { punc_type: "{", before_expr: true };
+static BRACE_R: PuncData = PuncData { punc_type: "}", before_expr: false };
+static COLON: PuncData = PuncData { punc_type: ":", before_expr: true };
+static COMMA: PuncData = PuncData { punc_type: ",", before_expr: true };
+static DOLLAR_BRACE_L: PuncData = PuncData { punc_type: "${", before_expr: true };
+static DOT: PuncData = PuncData { punc_type: ".", before_expr: false };
+static ELLIPSIS: PuncData = PuncData { punc_type: "...", before_expr: false };
+static PAREN_L: PuncData = PuncData { punc_type: "(", before_expr: true };
+static PAREN_R: PuncData = PuncData { punc_type: ")", before_expr: false };
+static QUESTION: PuncData = PuncData { punc_type: "?", before_expr: true };
+static SEMI: PuncData = PuncData { punc_type: ";", before_expr: true };
+
+// operators
+static SLASH: OperatorData = OperatorData { binop: 10, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+static EQ: OperatorData = OperatorData { binop: 255, before_expr: true, is_assign: true, is_update: false, postfix: false, prefix: false };
+static ASSIGN: OperatorData = OperatorData { binop: 255, before_expr: true, is_assign: true, is_update: false, postfix: false, prefix: false };
+static INC_DEC: OperatorData = OperatorData { binop: 255, before_expr: false, is_assign: false, is_update: true, postfix: true, prefix: true };
+static PREFIX: OperatorData = OperatorData { binop: 255, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: true };
+static LOGICAL_OR: OperatorData = OperatorData { binop: 1, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+static LOGICIAL_AND: OperatorData = OperatorData { binop: 2, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+static BITWISE_OR: OperatorData = OperatorData { binop: 3, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+static BITWISE_XOR: OperatorData = OperatorData { binop: 4, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+static BITWISE_AND: OperatorData = OperatorData { binop: 5, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+static EQUALITY: OperatorData = OperatorData { binop: 6, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+static RELATIONAL: OperatorData = OperatorData { binop: 7, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+static BIT_SHIFT: OperatorData = OperatorData { binop: 8, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+static PLUS_MIN: OperatorData = OperatorData { binop: 9, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: true };
+static MODULO: OperatorData = OperatorData { binop: 10, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+// '*' may be multiply or have special meaning in ES6
+static STAR: OperatorData = OperatorData { binop: 10, before_expr: true, is_assign: false, is_update: false, postfix: false, prefix: false };
+
+
 fn create_tokenizer(input: &str, options: Options) -> Tokenizer {
     Tokenizer::new(input, options)
 }
@@ -86,6 +128,8 @@ enum TokenType {
     Name,
     Keyword(KeywordData),
     Punc(PuncData),
+    Value(ValueData),
+    Operator(OperatorData),
     Eof
 }
 
@@ -97,9 +141,25 @@ struct KeywordData {
 }
 
 #[deriving(Show)]
+struct ValueData {
+    keyword: &'static str,
+    atom_value: Option<bool>
+}
+
+#[deriving(Show)]
 struct PuncData {
     punc_type: &'static str,
     before_expr: bool
+}
+
+#[deriving(Show)]
+struct OperatorData {
+    binop: u8,
+    before_expr: bool,
+    is_assign: bool,
+    postfix: bool,
+    prefix: bool,
+    is_update: bool
 }
 
 struct Tokenizer {
@@ -219,13 +279,29 @@ impl Tokenizer {
 
     fn read_token_from_code(&mut self, code: u32) -> Option<Token> {
         match code {
+            // The interpretation of a dot depends on whether it is followed
+            // by a digit or another two dots.
+            //46 => self.read_token_dot(), // '.'
             40 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(PuncData { punc_type: "(", before_expr: true })))
+                Some(self.finish_token(Punc(PAREN_L)))
             },
             _ => None
         }
     }
+
+    //fn read_token_dot(&mut self) -> Token {
+        //let next = self.char_at(self.tok_pos + 1) as u32;
+        //if next >= 48  && next <= 57 {return self.read_number(true);}
+        //else
+    //}
+
+    //fn read_number(&mut self, starts_with_dot: bool) -> Result<f64>  {
+        //let start = self.tok_pos;
+        //let is_float = false;
+        //let octal = self.curr_char() == 48; // '0'
+        //Ok(3.14f64)
+    //}
 
     fn read_word(&mut self) -> Token {
         let word = self.read_word_in_loop();
