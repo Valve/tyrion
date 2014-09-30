@@ -1,3 +1,4 @@
+[![Stories in Ready](https://badge.waffle.io/Valve/tyrion.png?label=ready&title=Ready)](https://waffle.io/Valve/tyrion)
 Tyrion
 =======
 
