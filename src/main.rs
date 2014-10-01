@@ -109,6 +109,7 @@ struct Options {
     version: EcmaVersion
 }
 
+#[deriving(PartialEq)]
 enum EcmaVersion {
     Ecma3,
     Ecma5,
@@ -194,9 +195,15 @@ impl Tokenizer {
         self.char_at(self.tok_pos)
     }
 
+    #[inline]
+    fn curr_char_code(&self) -> u32 {
+        self.curr_char() as u32
+    }
+
     fn char_at(&self, pos: uint) -> char {
         self.input.as_slice().char_at(pos)
     }
+
 
     fn skip_space(&mut self) {
         while self.tok_pos < self.input_len {
@@ -281,27 +288,95 @@ impl Tokenizer {
         match code {
             // The interpretation of a dot depends on whether it is followed
             // by a digit or another two dots.
-            //46 => self.read_token_dot(), // '.'
+            46 => Some(self.read_token_dot()), // '.'
             40 => {
                 self.tok_pos += 1;
                 Some(self.finish_token(Punc(PAREN_L)))
+            },
+            41 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(PAREN_R)))
+            },
+            44 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(COMMA)))
+            },
+            58 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(COLON)))
+            },
+            59 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(SEMI)))
+            },
+            63 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(QUESTION)))
+            },
+            91 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(BRAKET_L)))
+            },
+            93 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(BRAKET_R)))
+            },
+            123 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(BRACE_L)))
+            },
+            125 => {
+                self.tok_pos += 1;
+                Some(self.finish_token(Punc(BRACE_R)))
             },
             _ => None
         }
     }
 
-    //fn read_token_dot(&mut self) -> Token {
+    fn read_token_dot(&mut self) -> Token {
+        let next = self.char_at(self.tok_pos + 1) as u32;
+        if next >= 48  && next <= 57 {
+            //TODO: change
+            return self.read_number(true).unwrap();
+        }
+        let next2 = self.char_at(self.tok_pos + 2) as u32;
+        if self.options.version == Ecma6 && next == 46 && next2 == 46 { // '.'
+            self.tok_pos += 3;
+            self.finish_token(Punc(ELLIPSIS))
+        } else {
+            self.tok_pos += 1;
+            self.finish_token(Punc(DOT))
+        }
+    }
+
+    //fn read_token_slash(&mut self) -> Token { // '/'
         //let next = self.char_at(self.tok_pos + 1) as u32;
-        //if next >= 48  && next <= 57 {return self.read_number(true);}
-        //else
+
+
     //}
 
-    //fn read_number(&mut self, starts_with_dot: bool) -> Result<f64>  {
-        //let start = self.tok_pos;
-        //let is_float = false;
-        //let octal = self.curr_char() == 48; // '0'
-        //Ok(3.14f64)
-    //}
+    fn read_number(&mut self, starts_with_dot: bool) -> Option<Token>  {
+        let start = self.tok_pos;
+        let mut is_float = false;
+        let octal = self.curr_char() as u32 == 48; // '0'
+        if !starts_with_dot && self.read_u32(10).is_none() {
+            fail!("{}: invalid number!", start)
+        }
+        if self.curr_char_code() == 46 {
+            self.tok_pos += 1;
+            // TODO: review this call
+            self.read_u32(10);
+            is_float = true;
+        }
+        let mut next = self.curr_char_code();
+        if next == 69 || next == 101 { //'eE'
+            self.tok_pos += 1;
+            next = self.curr_char_code();
+            if next == 43 || next == 45 { /* '+-' */ self.tok_pos += 1; }
+        }
+        //TODO: finish
+        None
+    }
 
     fn read_word(&mut self) -> Token {
         let word = self.read_word_in_loop();
@@ -404,6 +479,7 @@ impl Tokenizer {
     // Reads an unsigned integer in given radix of `len` length
     // if zero digits were read, returns None.
     // If integer is not of length `len`, None is returned
+    // TODO: refactor, DRY, return ParseResult
     fn read_u32_of_len(&mut self, radix: u32, len: uint) -> Option<u32> {
         let start = self.tok_pos;
         let mut total = 0;
@@ -427,6 +503,32 @@ impl Tokenizer {
         } else {
             Some(total)
         }
+    }
+
+    // TODO: refactor, DRY, return ParseResult
+    fn read_u32(&mut self, radix: u32) -> Option<u32> {
+        let start = self.tok_pos;
+        let mut total = 0;
+        let mut invalid_value = false;
+        loop {
+            // TODO: refactor, DRY
+            let  code = self.curr_char() as u32;
+            let val = if code >= 97 {
+                code - 97 + 10 // a
+            } else if code >= 65 {
+                code - 65 + 10 // A
+            } else if code >= 48 && code <= 57 { //0-9
+                code - 48
+            } else {
+                invalid_value = true;
+                break;
+            };
+            if val >= radix { break; }
+            self.tok_pos += 1;
+            total = total * radix + val;
+        }
+        if invalid_value { None }
+        else { Some(total) }
     }
 
     fn finish_token_with_value(&mut self, token_type: TokenType, value: &str) -> Token {
