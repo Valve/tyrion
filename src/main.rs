@@ -98,11 +98,11 @@ fn create_tokenizer(input: &str, options: Options) -> Tokenizer {
 }
 
 fn main() {
-    let options = Options{version: Ecma6};
-    let mut tokenizer = create_tokenizer("(function($){'use strict';})(jQuery);", options);
-    for token in tokenizer {
-        println!("{}", token);
-    }
+    //let options = Options{version: Ecma6};
+    //let mut tokenizer = create_tokenizer("(function($){'use strict';})(jQuery);", options);
+    //for token in tokenizer {
+        //println!("{}", token);
+    //}
 }
 
 struct Options {
@@ -127,6 +127,8 @@ struct Token {
 #[deriving(Show)]
 enum TokenType {
     Name,
+    Num,
+    Regexp,
     Keyword(KeywordData),
     Punc(PuncData),
     Value(ValueData),
@@ -163,6 +165,21 @@ struct OperatorData {
     is_update: bool
 }
 
+#[deriving(Show)]
+enum ParseErrorKind {
+    UnexpectedCharacter,
+    ExpectedUnicodeEscape,
+    InvalidUnicodeEscape,
+    UnterminatedRegexp,
+    InvalidRegexpFlag
+}
+struct ParseError {
+    pos: uint,
+    kind: ParseErrorKind
+}
+
+type ParseResult<T> = Result<T, ParseError>;
+
 struct Tokenizer {
     options: Options,
     contains_esc: bool,
@@ -176,15 +193,17 @@ struct Tokenizer {
 
 impl Tokenizer {
     fn new(input: &str, options: Options) -> Tokenizer {
-        Tokenizer {
-            options: options,
-            contains_esc: false,
-            input: input.to_string(),
-            input_len: input.len(),
-            tok_pos: 0,
-            tok_start: 0,
-            tok_end: 0
-        }
+        let mut tokenizer = Tokenizer {
+                options: options,
+                contains_esc: false,
+                input: input.to_string(),
+                input_len: input.len(),
+                tok_pos: 0,
+                tok_start: 0,
+                tok_end: 0
+            };
+        tokenizer.init_token_state();
+        tokenizer
     }
 
     fn init_token_state(&mut self) {
@@ -257,28 +276,36 @@ impl Tokenizer {
         }
     }
 
-    fn read_token(&mut self) -> Token {
+    fn read_token(&mut self) -> ParseResult<Token> {
         self.tok_start = self.tok_pos;
         if self.tok_pos >= self.input_len {
-            return Token {value: None, token_type: Eof, start: self.tok_start, end: self.tok_start}
+            return Ok(Token {value: None, token_type: Eof, start: self.tok_start, end: self.tok_start})
         }
         let code = self.curr_char() as u32;
 
         // Identifier or keyword. '\uXXXX' sequences are allowed in
         // identifiers, so '\' also goes to that.
         if Tokenizer::is_identifier_start(code) || code == 92 /* '/' */ {
-            return self.read_word()
+            // TODO: how to use try! here?
+            return match self.read_word() {
+                Ok(word) => Ok(word),
+                Err(e) => Err(e)
+            }
         }
         match self.read_token_from_code(code) {
-            Some(token) => token,
+            Some(token) => Ok(token),
             None => {
                   // If we are here, we either found a non-ASCII identifier
                   // character, or something that's entirely disallowed.
+                  // TODO: get rid of unwrap
                   let ch = char::from_u32(code).unwrap();
                   if ch == '\\' || Tokenizer::is_non_ascii_identifier_start(code) {
-                      self.read_word()
+                      match self.read_word() {
+                        Ok(word) => Ok(word),
+                        Err(e) => Err(e)
+                      }
                   } else {
-                      fail!("Unexpected character '{}'", ch);
+                      Err(ParseError{ kind: UnexpectedCharacter, pos: self.tok_pos })
                   }
             }
         }
@@ -378,13 +405,17 @@ impl Tokenizer {
         None
     }
 
-    fn read_word(&mut self) -> Token {
-        let word = self.read_word_in_loop();
-        let token_type = if !self.contains_esc && self.is_keyword(word.as_slice()) {
-            let keyword = self.get_keyword(word.as_slice());
-            Keyword(keyword)
-        } else { Name };
-        self.finish_token_with_value(token_type, word.as_slice())
+    fn read_word(&mut self) -> ParseResult<Token> {
+        match self.read_word_in_loop() {
+            Ok(word) => {
+                let token_type = if !self.contains_esc && self.is_keyword(word.as_slice()) {
+                    let keyword = self.get_keyword(word.as_slice());
+                    Keyword(keyword)
+                } else { Name };
+                Ok(self.finish_token_with_value(token_type, word.as_slice()))
+            },
+            Err(e) => Err(e)
+        }
     }
 
     fn get_keyword(&self, keyword: &str) -> KeywordData {
@@ -418,7 +449,7 @@ impl Tokenizer {
         }
     }
 
-    fn read_word_in_loop(&mut self) -> String {
+    fn read_word_in_loop(&mut self) -> ParseResult<String> {
         let start = self.tok_pos;
         let mut first = true;
         self.contains_esc = false;
@@ -437,7 +468,7 @@ impl Tokenizer {
                 self.contains_esc = true;
                 self.tok_pos += 1;
                 if self.curr_char() as u32 != 117 { // 'u'
-                    fail!("{}: Expected Unicode escape sequence \\uXXXX", self.tok_pos);
+                    return Err(ParseError { kind: ExpectedUnicodeEscape, pos: self.tok_pos })
                 }
                 self.tok_pos += 1;
                 // TODO: better error handling
@@ -452,20 +483,20 @@ impl Tokenizer {
                         if is_identifier_char {
                             word.push(ch);
                         } else {
-                            fail!("Invalid Unicode escape: {}", self.tok_pos - 4);
+                            return Err(ParseError { kind: InvalidUnicodeEscape, pos: self.tok_pos - 4 })
                         }
 
                     },
-                    None => fail!("Invalid Unicode escape: {}", self.tok_pos - 1)
+                    None => return Err(ParseError { kind: InvalidUnicodeEscape, pos: self.tok_pos - 1 })
                 };
             } else { break; }
             first = false;
         };
 
         if self.contains_esc {
-            word
+            Ok(word)
         } else {
-            self.input.as_slice().slice_chars(start, self.tok_pos).to_string()
+            Ok(self.input.as_slice().slice_chars(start, self.tok_pos).to_string())
         }
     }
 
@@ -531,6 +562,33 @@ impl Tokenizer {
         else { Some(total) }
     }
 
+    //fn parse_regexp(&mut self) -> ParseResult<Token> {
+        //let content = "".to_string();
+        //let escaped = false;
+        //let in_class = false;
+        //let start = self.tok_pos;
+        //loop {
+            //if self.tok_pos >= self.input_len {
+                //return Err(ParseError { pos: start, kind: UnterminatedRegexp })
+            //}
+            //let ch = self.curr_char();
+            //if self.is_new_line(ch) {
+                //return Err(ParseError { pos: start, kind: UnterminatedRegexp })
+            //}
+            //if !escaped {
+                //if ch == '[' { in_class = true; }
+                //else if ch == ']' && in_class { in_class = false; }
+                //else if ch == '/' && !in_class { break; }
+                //escaped = ch == '\\';
+            //} else { escaped = false; }
+            //self.tok_pos += 1;
+            //let content = self.input.slice_chars(start, self.tok_pos);
+            //self.tok_pos += 1;
+            //let mods = self.read_word_in_loop();
+
+        //}
+    //}
+
     fn finish_token_with_value(&mut self, token_type: TokenType, value: &str) -> Token {
         self.tok_end = self.tok_pos;
         Token { value: Some(value.to_string()), token_type: token_type, start: self.tok_start, end: self.tok_end }
@@ -571,6 +629,7 @@ impl Tokenizer {
 
     fn is_non_ascii_identifier_char(code: u32) -> bool {
         let ch = char::from_u32(code).unwrap();//it's safe here
+        // TODO: change regex to unicode category
         // regex taken from esprima.js
         // regex is a combination of non-ascii identifier start + non-ascii identifier
         // first unicode char from 2nd group is \u0300
@@ -584,14 +643,26 @@ impl Tokenizer {
             _ => ECMA5_KEYWORDS.contains(&word)
         }
     }
+
+    #[inline]
+    fn is_new_line(ch: char) -> bool {
+        match ch as u32 {
+            10 | 13 | 8232 | 8233 => true,
+            _ => false
+        }
+    }
 }
 
-impl Iterator<Token> for Tokenizer {
-    fn next(&mut self) -> Option<Token> {
-        let token = self.read_token();
-        match token.token_type {
-            Eof => None,
-            _ => Some(token)
+impl Iterator<ParseResult<Token>> for Tokenizer {
+    fn next(&mut self) -> Option<ParseResult<Token>> {
+        match self.read_token() {
+            Ok(token) =>  {
+                match token.token_type {
+                    Eof => None,
+                    _ => Some(Ok(token))
+                }
+            },
+            Err(e) => Some(Err(e))
         }
     }
 }
