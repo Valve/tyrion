@@ -59,8 +59,8 @@ static FALSE: ValueData = ValueData { keyword: "false", atom_value: Some(false) 
 // punc data
 static ARROW: PuncData = PuncData { punc_type: "=>", before_expr: true };
 static BQUOTE: PuncData = PuncData { punc_type: "`", before_expr: false };
-static BRAKET_L: PuncData = PuncData { punc_type: "[", before_expr: true };
-static BRAKET_R: PuncData = PuncData { punc_type: "]", before_expr: false };
+static BRACKET_L: PuncData = PuncData { punc_type: "[", before_expr: true };
+static BRACKET_R: PuncData = PuncData { punc_type: "]", before_expr: false };
 static BRACE_L: PuncData = PuncData { punc_type: "{", before_expr: true };
 static BRACE_R: PuncData = PuncData { punc_type: "}", before_expr: false };
 static COLON: PuncData = PuncData { punc_type: ":", before_expr: true };
@@ -167,11 +167,17 @@ struct OperatorData {
 
 #[deriving(Show)]
 enum ParseErrorKind {
-    UnexpectedCharacter,
+    //TODO: remove after implementing all features
+    // this is temporary to make things compile
+    NotImplemented,
     ExpectedUnicodeEscape,
+    InvalidNumber,
+    InvalidRegexpFlag,
+    InvalidValue,
     InvalidUnicodeEscape,
+    UnexpectedCharacter,
+    UnterminatedComment,
     UnterminatedRegexp,
-    InvalidRegexpFlag
 }
 struct ParseError {
     pos: uint,
@@ -193,7 +199,7 @@ struct Tokenizer {
 
 impl Tokenizer {
     fn new(input: &str, options: Options) -> Tokenizer {
-        let mut tokenizer = Tokenizer {
+        let tokenizer = Tokenizer {
                 options: options,
                 contains_esc: false,
                 input: input.to_string(),
@@ -202,12 +208,14 @@ impl Tokenizer {
                 tok_start: 0,
                 tok_end: 0
             };
-        tokenizer.init_token_state();
         tokenizer
     }
 
-    fn init_token_state(&mut self) {
-        self.skip_space();
+    fn init_token_state(&mut self) -> ParseResult<()> {
+        match self.skip_space() {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e)
+        }
     }
 
     fn curr_char(&self) -> char {
@@ -224,7 +232,7 @@ impl Tokenizer {
     }
 
 
-    fn skip_space(&mut self) {
+    fn skip_space(&mut self) -> ParseResult<()> {
         while self.tok_pos < self.input_len {
             let original_ch = self.curr_char();
             let ch = original_ch as u32;
@@ -243,7 +251,7 @@ impl Tokenizer {
             } else if ch == 47 { // '/'
                 let next = self.char_at(self.tok_pos + 1) as u32;
                 if next == 42 { // '*'
-                    self.skip_block_comment();
+                    try!(self.skip_block_comment());
                 } else if next == 47 { // '/'
                     self.skip_line_comment(2);
                 } else {
@@ -257,14 +265,18 @@ impl Tokenizer {
                 break;
             }
         }
+        Ok(())
     }
 
-    fn skip_block_comment(&mut self) {
+    fn skip_block_comment(&mut self) -> ParseResult<()> {
         self.tok_pos +=2;
         match index_of_with_offset(self.input.as_slice(), "*/", self.tok_pos) {
-            Some(i) => self.tok_pos = i + 2,
-            None => fail!("Unterminated comment at: {}", self.tok_pos - 2)
-        };
+            Some(i) => {
+                self.tok_pos = i + 2;
+                Ok(())
+            },
+            None => Err(ParseError{kind: UnterminatedComment, pos: self.tok_pos - 2})
+        }
     }
 
     fn skip_line_comment(&mut self, start_skip: uint){
@@ -293,8 +305,8 @@ impl Tokenizer {
             }
         }
         match self.read_token_from_code(code) {
-            Some(token) => Ok(token),
-            None => {
+            Ok(token) => Ok(token),
+            Err(_) => {
                   // If we are here, we either found a non-ASCII identifier
                   // character, or something that's entirely disallowed.
                   // TODO: get rid of unwrap
@@ -311,68 +323,70 @@ impl Tokenizer {
         }
     }
 
-    fn read_token_from_code(&mut self, code: u32) -> Option<Token> {
+    fn read_token_from_code(&mut self, code: u32) -> ParseResult<Token> {
         match code {
             // The interpretation of a dot depends on whether it is followed
             // by a digit or another two dots.
-            46 => Some(self.read_token_dot()), // '.'
+            46 => self.read_token_dot(), // '.'
             40 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(PAREN_L)))
+                Ok(self.finish_token(Punc(PAREN_L)))
             },
             41 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(PAREN_R)))
+                Ok(self.finish_token(Punc(PAREN_R)))
             },
             44 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(COMMA)))
+                Ok(self.finish_token(Punc(COMMA)))
             },
             58 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(COLON)))
+                Ok(self.finish_token(Punc(COLON)))
             },
             59 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(SEMI)))
+                Ok(self.finish_token(Punc(SEMI)))
             },
             63 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(QUESTION)))
+                Ok(self.finish_token(Punc(QUESTION)))
             },
             91 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(BRAKET_L)))
+                Ok(self.finish_token(Punc(BRACKET_L)))
             },
             93 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(BRAKET_R)))
+                Ok(self.finish_token(Punc(BRACKET_R)))
             },
             123 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(BRACE_L)))
+                Ok(self.finish_token(Punc(BRACE_L)))
             },
             125 => {
                 self.tok_pos += 1;
-                Some(self.finish_token(Punc(BRACE_R)))
+                Ok(self.finish_token(Punc(BRACE_R)))
             },
-            _ => None
+            _ => Err(ParseError {kind: NotImplemented, pos: self.tok_pos})
         }
     }
 
-    fn read_token_dot(&mut self) -> Token {
+    fn read_token_dot(&mut self) -> ParseResult<Token> {
         let next = self.char_at(self.tok_pos + 1) as u32;
         if next >= 48  && next <= 57 {
-            //TODO: change
-            return self.read_number(true).unwrap();
+            return match self.read_number(true) {
+                Ok(token) => Ok(token),
+                Err(e) => Err(e)
+            }
         }
         let next2 = self.char_at(self.tok_pos + 2) as u32;
         if self.options.version == Ecma6 && next == 46 && next2 == 46 { // '.'
             self.tok_pos += 3;
-            self.finish_token(Punc(ELLIPSIS))
+            Ok(self.finish_token(Punc(ELLIPSIS)))
         } else {
             self.tok_pos += 1;
-            self.finish_token(Punc(DOT))
+            Ok(self.finish_token(Punc(DOT)))
         }
     }
 
@@ -382,12 +396,12 @@ impl Tokenizer {
 
     //}
 
-    fn read_number(&mut self, starts_with_dot: bool) -> Option<Token>  {
+    fn read_number(&mut self, starts_with_dot: bool) -> ParseResult<Token> {
         let start = self.tok_pos;
         let mut is_float = false;
         let octal = self.curr_char() as u32 == 48; // '0'
         if !starts_with_dot && self.read_u32(10).is_none() {
-            fail!("{}: invalid number!", start)
+            return Err(ParseError { kind: InvalidNumber, pos: start})
         }
         if self.curr_char_code() == 46 {
             self.tok_pos += 1;
@@ -402,7 +416,7 @@ impl Tokenizer {
             if next == 43 || next == 45 { /* '+-' */ self.tok_pos += 1; }
         }
         //TODO: finish
-        None
+        Err(ParseError { kind: NotImplemented, pos: self.tok_pos })
     }
 
     fn read_word(&mut self) -> ParseResult<Token> {
@@ -472,7 +486,10 @@ impl Tokenizer {
                 }
                 self.tok_pos += 1;
                 // TODO: better error handling
-                let esc_code = self.read_hex_char(4).unwrap();
+                let esc_code = match self.read_hex_char(4) {
+                    Ok(code) => code,
+                    Err(e) => return Err(e)
+                };
                 match char::from_u32(esc_code) {
                     Some(ch) => {
                         let is_identifier_char = if first {
@@ -500,10 +517,10 @@ impl Tokenizer {
         }
     }
 
-    fn read_hex_char(&mut self, len: uint) -> Option<u32> {
+    fn read_hex_char(&mut self, len: uint) -> ParseResult<u32> {
         match self.read_u32_of_len(16, len) {
-            Some(n) => Some(n),
-            None => fail!("Bad character escape sequence: {}", self.tok_pos)
+            Ok(n) => Ok(n),
+            Err(e) => Err(ParseError { kind: InvalidUnicodeEscape, pos: self.tok_pos })
         }
     }
 
@@ -511,28 +528,29 @@ impl Tokenizer {
     // if zero digits were read, returns None.
     // If integer is not of length `len`, None is returned
     // TODO: refactor, DRY, return ParseResult
-    fn read_u32_of_len(&mut self, radix: u32, len: uint) -> Option<u32> {
+    fn read_u32_of_len(&mut self, radix: u32, len: uint) -> ParseResult<u32> {
         let start = self.tok_pos;
         let mut total = 0;
         for _ in range(0, len) {
             let  code = self.curr_char() as u32;
-            let val = if code >= 97 {
-                code - 97 + 10 // a
+            let maybe_val = if code >= 97 {
+                Some(code - 97 + 10) // a
             } else if code >= 65 {
-                code - 65 + 10 // A
+                Some(code - 65 + 10) // A
             } else if code >= 48 && code <= 57 { //0-9
-                code - 48
+                Some(code - 48)
             } else {
-                fail!("Invalid value at: {}", self.tok_pos);
+                None
             };
-            if val >= radix { break; }
+            if maybe_val.is_some() && maybe_val.unwrap() >= radix { break; }
             self.tok_pos += 1;
-            total = total * radix + val;
+            //TODO: remove unwrap
+            total = total * radix + maybe_val.unwrap();
         }
         if self.tok_pos - start != len {
-            None
+            Err(ParseError { kind: InvalidValue, pos: self.tok_pos })
         } else {
-            Some(total)
+            Ok(total)
         }
     }
 
@@ -678,4 +696,3 @@ fn index_of_with_offset(haystack: &str, needle: &str, offset: uint) -> Option<ui
         _ => None
     }
 }
-
