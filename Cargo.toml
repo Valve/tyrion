@@ -1,5 +1,5 @@
 [package]
 
-name = "js-rust"
+name = "tyrion"
 version = "0.0.1"
 authors = ["Valentin Vasilyev <valentin.vasilyev@outlook.com>"]

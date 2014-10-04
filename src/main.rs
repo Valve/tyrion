@@ -14,6 +14,7 @@ extern crate regex;
 #[phase(plugin)] extern crate regex_macros;
 
 use std::char;
+use std::num;
 
 static STRICT_MODE_BAD_WORDS: [&'static str,..2] = ["eval", "arguments"];
 static ECMA3_RESERVED_WORDS: [&'static str,..29] = ["abstract", "boolean", "byte", "char", "class", "double", "enum", "export", "extends", "final", "float", "goto", "implements", "import", "int", "interface", "long", "native", "package", "private", "protected", "public", "short", "static", "super", "synchronized", "throws", "transient", "volatile"];
@@ -98,15 +99,24 @@ fn create_tokenizer(input: &str, options: Options) -> Tokenizer {
 }
 
 fn main() {
-    //let options = Options{version: Ecma6};
-    //let mut tokenizer = create_tokenizer("(function($){'use strict';})(jQuery);", options);
-    //for token in tokenizer {
-        //println!("{}", token);
-    //}
+    let options = Options{version: Ecma6};
+    let mut tokenizer = create_tokenizer("(function($){'use strict';})(jQuery);", options);
+    for token in tokenizer {
+        println!("{}", token);
+    }
 }
 
 struct Options {
     version: EcmaVersion
+}
+
+impl Options {
+    fn is_ecma6(&self) -> bool {
+        match self.version {
+            Ecma6 => true,
+            _ => false
+        }
+    }
 }
 
 #[deriving(PartialEq)]
@@ -165,12 +175,16 @@ struct OperatorData {
     is_update: bool
 }
 
+// TODO: we need a custom error impl
 #[deriving(Show)]
 enum ParseErrorKind {
     //TODO: remove after implementing all features
     // this is temporary to make things compile
     NotImplemented,
+
+    // real errors
     ExpectedUnicodeEscape,
+    IdentifierDirectlyAfterNumber,
     InvalidNumber,
     InvalidRegexpFlag,
     InvalidValue,
@@ -179,6 +193,7 @@ enum ParseErrorKind {
     UnterminatedComment,
     UnterminatedRegexp,
 }
+#[deriving(Show)]
 struct ParseError {
     pos: uint,
     kind: ParseErrorKind
@@ -194,7 +209,8 @@ struct Tokenizer {
     tok_pos: uint,
     // start and end of current token
     tok_start: uint,
-    tok_end: uint
+    tok_end: uint,
+    strict: bool
 }
 
 impl Tokenizer {
@@ -206,7 +222,8 @@ impl Tokenizer {
                 input_len: input.len(),
                 tok_pos: 0,
                 tok_start: 0,
-                tok_end: 0
+                tok_end: 0,
+                strict: false
             };
         tokenizer
     }
@@ -336,21 +353,13 @@ impl Tokenizer {
                 self.tok_pos += 1;
                 Ok(self.finish_token(Punc(PAREN_R)))
             },
-            44 => {
-                self.tok_pos += 1;
-                Ok(self.finish_token(Punc(COMMA)))
-            },
-            58 => {
-                self.tok_pos += 1;
-                Ok(self.finish_token(Punc(COLON)))
-            },
             59 => {
                 self.tok_pos += 1;
                 Ok(self.finish_token(Punc(SEMI)))
             },
-            63 => {
+            44 => {
                 self.tok_pos += 1;
-                Ok(self.finish_token(Punc(QUESTION)))
+                Ok(self.finish_token(Punc(COMMA)))
             },
             91 => {
                 self.tok_pos += 1;
@@ -367,6 +376,44 @@ impl Tokenizer {
             125 => {
                 self.tok_pos += 1;
                 Ok(self.finish_token(Punc(BRACE_R)))
+            },
+            58 => {
+                self.tok_pos += 1;
+                Ok(self.finish_token(Punc(COLON)))
+            },
+            63 => {
+                self.tok_pos += 1;
+                Ok(self.finish_token(Punc(QUESTION)))
+            },
+            96 => {
+                match self.options.version {
+                    Ecma6 => {
+                        self.tok_pos += 1;
+                        // TODO: implement not skip_space
+                        Ok(self.finish_token(Punc(BQUOTE)))
+                    },
+                    // TODO: figure out what to do in Ecma 3 and 5
+                    _ => Err(ParseError{kind: NotImplemented, pos: self.tok_pos})
+                }
+            },
+            48 => {
+                let next = self.char_at(self.tok_pos) as u32;
+                if next == 120 || next == 88 { // 0x 0X hex number
+                    return self.read_radix_number(16)
+                }
+                if self.options.is_ecma6() {
+                    if next == 111 || next == 79 {
+                        return self.read_radix_number(8) // 0o 0O octal number
+                    }
+                    if next == 98 || next == 66 {
+                        return self.read_radix_number(2) // 0b 0B binary number
+                    }
+                    // TODO: figure out what should be returned here
+                    else { Err(ParseError{kind: NotImplemented, pos: self.tok_pos}) }
+                    // TODO: figure out what should be returned here
+                }
+                // TODO: figure out what should be returned here
+                else { Err(ParseError{kind: NotImplemented, pos: self.tok_pos}) }
             },
             _ => Err(ParseError {kind: NotImplemented, pos: self.tok_pos})
         }
@@ -398,8 +445,10 @@ impl Tokenizer {
 
     fn read_number(&mut self, starts_with_dot: bool) -> ParseResult<Token> {
         let start = self.tok_pos;
-        let mut is_float = false;
-        let octal = self.curr_char() as u32 == 48; // '0'
+        // TODO: review the var usage
+        let mut _is_float = false;
+        // TODO: review the var usage
+        let _octal = self.curr_char() as u32 == 48; // '0'
         if !starts_with_dot && self.read_u32(10).is_none() {
             return Err(ParseError { kind: InvalidNumber, pos: start})
         }
@@ -407,16 +456,29 @@ impl Tokenizer {
             self.tok_pos += 1;
             // TODO: review this call
             self.read_u32(10);
-            is_float = true;
+            _is_float = true;
         }
         let mut next = self.curr_char_code();
         if next == 69 || next == 101 { //'eE'
             self.tok_pos += 1;
             next = self.curr_char_code();
             if next == 43 || next == 45 { /* '+-' */ self.tok_pos += 1; }
+            if self.read_u32(10).is_none() {
+                return Err(ParseError { kind: InvalidNumber, pos: start})
+            }
+            _is_float = true;
         }
-        //TODO: finish
-        Err(ParseError { kind: NotImplemented, pos: self.tok_pos })
+        if Tokenizer::is_identifier_start(self.curr_char_code()) {
+            return Err(ParseError { kind: IdentifierDirectlyAfterNumber, pos: self.tok_pos })
+        }
+        //TODO: review this
+        let st = self.input.as_slice().slice_chars(start, self.tok_pos).to_string();
+        // TODO: remove regex
+        if regex!("[89]").is_match(st.as_slice()) || self.strict {
+            Err(ParseError { kind: InvalidNumber, pos: self.tok_pos })
+        } else {
+            Ok(self.finish_token_with_value(Num, st.as_slice()))
+        }
     }
 
     fn read_word(&mut self) -> ParseResult<Token> {
@@ -554,7 +616,7 @@ impl Tokenizer {
         }
     }
 
-    // TODO: refactor, DRY, return ParseResult
+    // TODO: refactor, DRY
     fn read_u32(&mut self, radix: u32) -> Option<u32> {
         let start = self.tok_pos;
         let mut total = 0;
@@ -578,6 +640,20 @@ impl Tokenizer {
         }
         if invalid_value { None }
         else { Some(total) }
+    }
+
+    fn read_radix_number(&mut self, radix: u32) -> ParseResult<Token> {
+        self.tok_pos += 2;
+        match self.read_u32(radix) {
+            None => Err(ParseError { kind: InvalidNumber, pos: self.tok_start }),
+            Some(n) => {
+                if Tokenizer::is_identifier_char(self.curr_char() as u32) {
+                    Err(ParseError {kind: IdentifierDirectlyAfterNumber, pos: self.tok_pos })
+                } else {
+                    Ok(self.finish_token_with_value(Num, n.to_string().as_slice()))
+                }
+            }
+        }
     }
 
     //fn parse_regexp(&mut self) -> ParseResult<Token> {
