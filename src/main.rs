@@ -101,7 +101,7 @@ fn create_tokenizer(input: &str, options: Options) -> Tokenizer {
 
 fn main() {
     let options = Options{version: Ecma6};
-    let mut tokenizer = create_tokenizer("(function($){'use strict';})(jQuery);", options);
+    let mut tokenizer = create_tokenizer("'hello, world';", options);
     for token in tokenizer {
         println!("{}", token);
     }
@@ -516,7 +516,7 @@ impl Tokenizer {
         }
     }
 
-    fn read_string_from_code(&mut self, code: u32) -> ParseResult<Token> {
+    fn read_string_from_code(&mut self, quote_code: u32) -> ParseResult<Token> {
         self.tok_pos += 1;
         let mut out = "".to_string();
         loop {
@@ -524,18 +524,18 @@ impl Tokenizer {
                 return Err(ParseError { kind: UnterminatedStringConstant, pos: self.tok_start })
             }
             let curr_code = self.curr_char_code();
-            if code == curr_code {
+            if quote_code == curr_code {
                 self.tok_pos += 1;
                 return Ok(self.finish_token_with_value(StringLiteral, out.as_slice()))
             }
-            if code == 92 { // '\'
+            if curr_code == 92 { // '\'
                 out.push(self.read_escaped_char());
             } else {
                 self.tok_pos += 1;
                 if Tokenizer::is_new_line(self.curr_char()) {
                     return Err(ParseError { kind: UnterminatedStringConstant, pos: self.tok_start })
                 }
-                out.push(char::from_u32(code).unwrap());
+                out.push(char::from_u32(curr_code).unwrap());
             }
         }
     }
