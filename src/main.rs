@@ -13,6 +13,7 @@
 extern crate regex;
 #[phase(plugin)] extern crate regex_macros;
 
+use std::fmt;
 use std::char;
 use std::num;
 
@@ -176,8 +177,6 @@ struct OperatorData {
     is_update: bool
 }
 
-// TODO: we need a custom error impl
-#[deriving(Show)]
 enum ParseErrorKind {
     //TODO: remove after implementing all features
     // this is temporary to make things compile
@@ -195,6 +194,25 @@ enum ParseErrorKind {
     UnterminatedRegexp,
     UnterminatedStringConstant,
 }
+
+impl fmt::Show for ParseErrorKind {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match *self {
+            NotImplemented => "This feature is not implemented yet".fmt(f),
+            ExpectedUnicodeEscape => "Expected Unicode escape".fmt(f),
+            IdentifierDirectlyAfterNumber => "Identifier directly after number".fmt(f),
+            InvalidNumber => "Invalid number".fmt(f),
+            InvalidRegexpFlag => "Invalid regexp flag".fmt(f),
+            InvalidValue => "Invalid value".fmt(f),
+            InvalidUnicodeEscape => "Invalid Unicode escape".fmt(f),
+            UnexpectedCharacter => "Unexpected character".fmt(f),
+            UnterminatedComment => "Unterminated comment".fmt(f),
+            UnterminatedRegexp => "Unterminated regexp".fmt(f),
+            UnterminatedStringConstant => "Unterminated string constant".fmt(f)
+        }
+    }
+}
+
 #[deriving(Show)]
 struct ParseError {
     pos: uint,
