@@ -8,4 +8,5 @@ Work in progress, 80% of tokenizer done.
 
 Parser is EcmaScript 3/5/6 compatible.
 
-This parser would not be possible without acorn-js. Huge thanks to @marijnh for doing the hardest part.
+This parser would not be possible without [acorn-js](https://github.com/marijnh/acorn). :heart_eyes:
+Huge thanks to @marijnh for doing the hardest part.
